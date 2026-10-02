@@ -1,20 +1,22 @@
 """Analizador léxico de Mini C.
 
-Implementación según la especificación de la skill analizador-lexico-mini-c y el capítulo IV, §4.4.
+Se implementa en el **proyecto 1**. Aquí solo quedan el estado y las firmas;
+cada método describe lo que debe hacer según el capítulo IV, §4.4.
 """
 
 from minic.diagnostics import diagnostic_code
 from minic.diagnostics.diagnostic_bag import DiagnosticBag
-from minic.lexer.lexer_result import LexerResult
 from minic.lexer.lexical_rules import (
     DOUBLE,
     KEYWORDS,
+    NEWLINE,
     SINGLE,
     WHITESPACE,
     is_digit,
     is_identifier_part,
     is_identifier_start,
 )
+from minic.lexer.lexer_result import LexerResult
 from minic.lexer.token import Token
 from minic.lexer.token_type import TokenType
 
@@ -55,8 +57,12 @@ class Lexer:
             self._start_column = self._column
             self._scan_token()
 
-        self._tokens.append(Token(TokenType.EOF, "", None, self._line, self._column))
-        return LexerResult(list(self._tokens), self._diagnostics.to_list())
+        self._start = self._current
+        self._start_line = self._line
+        self._start_column = self._column
+        self._add_token(TokenType.EOF)
+
+        return LexerResult(self._tokens, self._diagnostics.to_list())
 
     def _is_at_end(self) -> bool:
         """Indica si ya se consumió todo el texto fuente."""
@@ -82,7 +88,7 @@ class Lexer:
         """
         char = self._source[self._current]
         self._current += 1
-        if char == "\n":
+        if char == NEWLINE:
             self._line += 1
             self._column = 1
         else:
@@ -139,9 +145,9 @@ class Lexer:
         while is_digit(self._peek()):
             self._advance()
 
-        lexeme = self._source[self._start : self._current]
-        literal = int(lexeme)
-        self._add_token(TokenType.INTEGER_LITERAL, literal)
+        text = self._source[self._start : self._current]
+        value = int(text)
+        self._add_token(TokenType.INTEGER_LITERAL, literal=value)
 
     def _scan_operator(self) -> bool:
         """Intenta reconocer un operador o símbolo en la posición actual.
@@ -150,18 +156,17 @@ class Lexer:
         reconoce algo, lo consume, emite el token y devuelve ``True``; si no,
         devuelve ``False`` sin consumir nada.
         """
-        if self._current + 1 < len(self._source):
-            two_chars = self._source[self._current : self._current + 2]
-            if two_chars in DOUBLE:
-                self._advance()
-                self._advance()
-                self._add_token(DOUBLE[two_chars])
-                return True
-
-        char = self._peek()
-        if char in SINGLE:
+        two = self._peek() + self._peek_next()
+        if two in DOUBLE:
             self._advance()
-            self._add_token(SINGLE[char])
+            self._advance()
+            self._add_token(DOUBLE[two])
+            return True
+
+        one = self._peek()
+        if one in SINGLE:
+            self._advance()
+            self._add_token(SINGLE[one])
             return True
 
         return False
@@ -173,7 +178,13 @@ class Lexer:
         """
         lexeme = self._source[self._start : self._current]
         self._tokens.append(
-            Token(token_type, lexeme, literal, self._start_line, self._start_column)
+            Token(
+                type=token_type,
+                lexeme=lexeme,
+                literal=literal,
+                line=self._start_line,
+                column=self._start_column,
+            )
         )
 
     def _report_unrecognized(self) -> None:
@@ -182,12 +193,10 @@ class Lexer:
         Mensaje: ``Carácter no reconocido: '<c>'`` en la línea y la columna del
         carácter (``diagnostic_code.unrecognized_character``).
         """
-        err_line = self._start_line
-        err_column = self._start_column
         char = self._advance()
         self._diagnostics.report(
             diagnostic_code.LEX001,
             diagnostic_code.unrecognized_character(char),
-            err_line,
-            err_column,
+            self._start_line,
+            self._start_column,
         )
